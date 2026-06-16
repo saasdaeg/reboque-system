@@ -311,17 +311,21 @@ def pagina_vendas():
             prods_map = {p["id"]: p["nome"] for p in db.query("produtos",{"d_e_l_e_t":0})}
             for it in itens:
                 st.write(f"  • {prods_map.get(it['id_produto'],'?')} × {it['quantidade']} = R$ {float(it['subtotal'] or 0):,.2f}")
+            # Botões fora do loop de itens
+            ba,bb,bc = st.columns(3)
+            if ba.button("✏️ Editar", key=f"ev{v['id']}"):
+                st.session_state["editar_venda_id"]=v["id"]; st.session_state.pagina="nova_venda"; st.rerun()
             if v["status"] not in ["cancelada","entregue"]:
-                ba,bb = st.columns(2)
-                if ba.button("✏️ Editar", key=f"ev{v['id']}"):
-                    st.session_state["editar_venda_id"]=v["id"]; st.session_state.pagina="nova_venda"; st.rerun()
-                if bb.button("❌ Cancelar", key=f"cv{v['id']}"):
-                    if v["status"]=="confirmada":
+                if bb.button("❌ Cancelar Venda", key=f"cv{v['id']}"):
+                    if v["status"] in ("confirmada","entregue"):
                         for it in itens:
                             p = next((x for x in db.query("produtos",{"d_e_l_e_t":0}) if x["id"]==it["id_produto"]),None)
                             if p:
                                 db.update("produtos",{"estoque_atual": p["estoque_atual"]+it["quantidade"]},{"id":p["id"]})
                     db.update("vendas",{"status":"cancelada"},{"id":v["id"]}); st.rerun()
+            if v["status"] == "confirmada":
+                if bc.button("📦 Marcar Entregue", key=f"entr{v['id']}"):
+                    db.update("vendas",{"status":"entregue"},{"id":v["id"]}); st.rerun()
 
 def pagina_nova_venda():
     eid = st.session_state.get("editar_venda_id")
@@ -385,7 +389,7 @@ def pagina_nova_venda():
             for it in itens_form:
                 db.insert("venda_itens", dict(id_venda=vid,id_produto=it["id_produto"],
                           quantidade=it["qtd"],preco_unitario=it["preco"],subtotal=it["sub"],d_e_l_e_t=0))
-            if status=="confirmada":
+            if status in ("confirmada", "entregue"):
                 for it in itens_form:
                     p = next((x for x in produtos if x["id"]==it["id_produto"]),None)
                     if p:
