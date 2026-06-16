@@ -194,7 +194,10 @@ def pagina_estoque():
             col1.write(f"**Categoria:** {p['categoria'] or '—'}")
             col2.write(f"**Custo:** R$ {float(p['preco_custo'] or 0):,.2f}")
             col2.write(f"**Venda:** R$ {float(p['preco_venda'] or 0):,.2f}")
-            col3.write(f"**Estoque:** {p['estoque_atual']} / mín {p['estoque_minimo']}")
+            reservado = p.get("estoque_reservado") or 0
+            disponivel = p["estoque_atual"] - reservado
+            col3.write(f"**Total:** {p['estoque_atual']} {p['unidade']}")
+            col3.write(f"**Reservado:** {reservado} | **Disponível:** {disponivel}")
             ba,bb,bc = st.columns(3)
             if ba.button("± Mover", key=f"mv{p['id']}"):
                 st.session_state["mov_produto_id"]=p["id"]; st.session_state.pagina="movimentar"; st.rerun()
@@ -317,43 +320,44 @@ def pagina_vendas():
                 st.session_state["editar_venda_id"]=v["id"]; st.session_state.pagina="nova_venda"; st.rerun()
             if v["status"] not in ["cancelada","entregue"]:
                 if bb.button("❌ Cancelar Venda", key=f"cv{v['id']}"):
-                    # Só devolve estoque se estava confirmada
                     if v["status"] == "confirmada":
+                        # Liberar reserva
                         for it in itens:
                             p = next((x for x in db.query("produtos",{"d_e_l_e_t":0}) if x["id"]==it["id_produto"]),None)
                             if p:
-                                novo_est = p["estoque_atual"] + it["quantidade"]
-                                db.update("produtos",{"estoque_atual": novo_est},{"id":p["id"]})
-                                db.insert("movimentos_estoque", dict(
-                                    id_produto=it["id_produto"], tipo="entrada",
-                                    quantidade=it["quantidade"],
-                                    motivo=f"Cancelamento venda {v['numero_venda']}",
-                                    usuario_insert=st.session_state.usuario["id"]
-                                ))
+                                novo_res = max(0, (p.get("estoque_reservado") or 0) - it["quantidade"])
+                                db.update("produtos",{"estoque_reservado": novo_res},{"id":p["id"]})
                     db.update("vendas",{"status":"cancelada"},{"id":v["id"]})
-                    st.success("Venda cancelada!" + (" Estoque devolvido." if v["status"]=="confirmada" else ""))
+                    st.success("Venda cancelada!" + (" Reserva liberada." if v["status"]=="confirmada" else ""))
                     st.rerun()
             if v["status"] == "orcamento":
                 if bc.button("✅ Confirmar Venda", key=f"conf{v['id']}"):
-                    # Baixar estoque ao confirmar
+                    # RESERVAR estoque (não baixa ainda)
+                    for it in itens:
+                        p = next((x for x in db.query("produtos",{"d_e_l_e_t":0}) if x["id"]==it["id_produto"]),None)
+                        if p:
+                            novo_res = (p.get("estoque_reservado") or 0) + it["quantidade"]
+                            db.update("produtos",{"estoque_reservado": novo_res},{"id":p["id"]})
+                    db.update("vendas",{"status":"confirmada"},{"id":v["id"]})
+                    st.success("✅ Venda confirmada! Estoque reservado.")
+                    st.rerun()
+            if v["status"] == "confirmada":
+                if bc.button("📦 Marcar Entregue", key=f"entr{v['id']}"):
+                    # BAIXAR estoque e liberar reserva
                     for it in itens:
                         p = next((x for x in db.query("produtos",{"d_e_l_e_t":0}) if x["id"]==it["id_produto"]),None)
                         if p:
                             novo_est = max(0, p["estoque_atual"] - it["quantidade"])
-                            db.update("produtos",{"estoque_atual": novo_est},{"id":p["id"]})
+                            novo_res = max(0, (p.get("estoque_reservado") or 0) - it["quantidade"])
+                            db.update("produtos",{"estoque_atual": novo_est, "estoque_reservado": novo_res},{"id":p["id"]})
                             db.insert("movimentos_estoque", dict(
                                 id_produto=it["id_produto"], tipo="saida",
                                 quantidade=it["quantidade"],
-                                motivo=f"Venda confirmada {v['numero_venda']}",
+                                motivo=f"Entrega venda {v['numero_venda']}",
                                 usuario_insert=st.session_state.usuario["id"]
                             ))
-                    db.update("vendas",{"status":"confirmada"},{"id":v["id"]})
-                    st.success("Venda confirmada! Estoque baixado.")
-                    st.rerun()
-            if v["status"] == "confirmada":
-                if bc.button("📦 Marcar Entregue", key=f"entr{v['id']}"):
                     db.update("vendas",{"status":"entregue"},{"id":v["id"]})
-                    st.success("Venda marcada como entregue!")
+                    st.success("📦 Entregue! Estoque baixado.")
                     st.rerun()
 
 def pagina_nova_venda():
@@ -365,7 +369,7 @@ def pagina_nova_venda():
     clientes = db.query("clientes", filters={"d_e_l_e_t":0})
     produtos  = db.query("produtos",  filters={"d_e_l_e_t":0})
     cli_opts  = {"— Balcão —": None} | {c["nome"]: c["id"] for c in clientes}
-    prod_opts = {f"[{p['codigo'] or '—'}] {p['nome']} — R$ {float(p['preco_venda'] or 0):,.2f}": p for p in produtos}
+    prod_opts = {f"[{p['codigo'] or '—'}] {p['nome']} — R$ {float(p['preco_venda'] or 0):,.2f} | Disp: {p['estoque_atual']-(p.get('estoque_reservado') or 0)} un": p for p in produtos}
     with st.form("fv"):
         col1,col2,col3 = st.columns(3)
         cli_sel = col1.selectbox("Cliente", list(cli_opts.keys()))
