@@ -162,7 +162,7 @@ def pagina_novo_cliente():
                 st.error("Nome obrigatório.")
             else:
                 data = dict(nome=nome,cpf_cnpj=cpf,telefone=tel,email=email,
-                            endereco=end,cidade=cidade,estado=estado,observacoes=obs,D_E_L_E_T=0)
+                            endereco=end,cidade=cidade,estado=estado,observacoes=obs,d_e_l_e_t=0)
                 if c:
                     db.update("clientes", data, {"id":eid})
                     st.success("Atualizado!")
@@ -233,7 +233,7 @@ def pagina_novo_produto():
             else:
                 data = dict(codigo=codigo,nome=nome,descricao=desc,categoria=categoria,
                             preco_custo=p_custo,preco_venda=p_venda,
-                            estoque_minimo=est_min,unidade=unidade,D_E_L_E_T=0)
+                            estoque_minimo=est_min,unidade=unidade,d_e_l_e_t=0)
                 if p:
                     db.update("produtos", data, {"id":eid})
                     st.success("Atualizado!")
@@ -380,11 +380,11 @@ def pagina_nova_venda():
                 num  = f"V{hoje.strftime('%Y%m%d')}-{seq:04d}"
                 row  = db.insert("vendas", dict(numero_venda=num,id_cliente=id_cliente,
                                  status=status,forma_pagamento=forma,observacoes=obs,
-                                 total=total,usuario_insert=uid,D_E_L_E_T=0))
+                                 total=total,usuario_insert=uid,d_e_l_e_t=0))
                 vid  = row["id"]
             for it in itens_form:
                 db.insert("venda_itens", dict(id_venda=vid,id_produto=it["id_produto"],
-                          quantidade=it["qtd"],preco_unitario=it["preco"],subtotal=it["sub"],D_E_L_E_T=0))
+                          quantidade=it["qtd"],preco_unitario=it["preco"],subtotal=it["sub"],d_e_l_e_t=0))
             if status=="confirmada":
                 for it in itens_form:
                     p = next((x for x in produtos if x["id"]==it["id_produto"]),None)
