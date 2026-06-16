@@ -39,7 +39,7 @@ def pagina_login():
         senha = st.text_input("Senha", type="password")
         if st.button("Entrar", use_container_width=True, type="primary"):
             if email and senha:
-                rows = db.query("usuarios", filters={"email": email.strip().lower(), "ativo": 1, "D_E_L_E_T": 0})
+                rows = db.query("usuarios", filters={"email": email.strip().lower(), "ativo": 1, "d_e_l_e_t": 0})
                 if rows and check_password_hash(rows[0]["senha_hash"], senha):
                     st.session_state.usuario = rows[0]
                     st.session_state.pagina = "dashboard"
@@ -75,10 +75,10 @@ def sidebar():
 def pagina_dashboard():
     st.title("📊 Dashboard")
     c1,c2,c3,c4 = st.columns(4)
-    c1.metric("👥 Clientes",  db.count("clientes", {"D_E_L_E_T":0}))
-    c2.metric("📦 Produtos",  db.count("produtos",  {"D_E_L_E_T":0}))
+    c1.metric("👥 Clientes",  db.count("clientes", {"d_e_l_e_t":0}))
+    c2.metric("📦 Produtos",  db.count("produtos",  {"d_e_l_e_t":0}))
 
-    vendas_all = db.query("vendas", filters={"D_E_L_E_T":0})
+    vendas_all = db.query("vendas", filters={"d_e_l_e_t":0})
     total_vnd  = sum(1 for v in vendas_all if v["status"] != "cancelada")
     fatur      = sum(float(v["total"] or 0) for v in vendas_all if v["status"] in ("confirmada","entregue"))
     c3.metric("💰 Vendas",     total_vnd)
@@ -89,12 +89,12 @@ def pagina_dashboard():
     with col_a:
         st.subheader("Últimas Vendas")
         vendas = sorted(vendas_all, key=lambda x: x["datestamp_insert"] or "", reverse=True)[:8]
-        clientes_map = {c["id"]: c["nome"] for c in db.query("clientes", filters={"D_E_L_E_T":0})}
+        clientes_map = {c["id"]: c["nome"] for c in db.query("clientes", filters={"d_e_l_e_t":0})}
         for v in vendas:
             st.write(f"**{v['numero_venda']}** | {clientes_map.get(v['id_cliente'],'Balcão')} | {v['status']} | R$ {float(v['total'] or 0):,.2f}")
     with col_b:
         st.subheader("⚠️ Estoque Baixo")
-        prods = db.query("produtos", filters={"D_E_L_E_T":0})
+        prods = db.query("produtos", filters={"d_e_l_e_t":0})
         baixo = [p for p in prods if p["estoque_atual"] <= p["estoque_minimo"]]
         if baixo:
             for p in baixo:
@@ -120,7 +120,7 @@ def pagina_clientes():
     busca = c1.text_input("Buscar", placeholder="Nome, CPF/CNPJ ou telefone...", label_visibility="collapsed")
     if c2.button("➕ Novo", use_container_width=True, type="primary"):
         st.session_state.pagina="novo_cliente"; st.rerun()
-    clientes = db.query("clientes", filters={"D_E_L_E_T":0})
+    clientes = db.query("clientes", filters={"d_e_l_e_t":0})
     if busca:
         b = busca.lower()
         clientes = [c for c in clientes if b in (c["nome"] or "").lower()
@@ -141,7 +141,7 @@ def pagina_clientes():
 
 def pagina_novo_cliente():
     eid = st.session_state.get("editar_cliente_id")
-    c = next((x for x in db.query("clientes",{"D_E_L_E_T":0}) if x["id"]==eid), None) if eid else None
+    c = next((x for x in db.query("clientes",{"d_e_l_e_t":0}) if x["id"]==eid), None) if eid else None
     st.title("✏️ Editar Cliente" if c else "👤 Novo Cliente")
     if st.button("← Voltar"):
         st.session_state.pop("editar_cliente_id",None); st.session_state.pagina="clientes"; st.rerun()
@@ -181,7 +181,7 @@ def pagina_estoque():
     busca = c1.text_input("Buscar", placeholder="Nome, código ou categoria...", label_visibility="collapsed")
     if c2.button("➕ Novo", use_container_width=True, type="primary"):
         st.session_state.pagina="novo_produto"; st.rerun()
-    prods = db.query("produtos", filters={"D_E_L_E_T":0})
+    prods = db.query("produtos", filters={"d_e_l_e_t":0})
     if busca:
         b = busca.lower()
         prods = [p for p in prods if b in (p["nome"] or "").lower()
@@ -205,7 +205,7 @@ def pagina_estoque():
 
 def pagina_novo_produto():
     eid = st.session_state.get("editar_produto_id")
-    p = next((x for x in db.query("produtos",{"D_E_L_E_T":0}) if x["id"]==eid), None) if eid else None
+    p = next((x for x in db.query("produtos",{"d_e_l_e_t":0}) if x["id"]==eid), None) if eid else None
     st.title("✏️ Editar Produto" if p else "📦 Novo Produto")
     if st.button("← Voltar"):
         st.session_state.pop("editar_produto_id",None); st.session_state.pagina="estoque"; st.rerun()
@@ -246,7 +246,7 @@ def pagina_novo_produto():
 
 def pagina_movimentar():
     pid = st.session_state.get("mov_produto_id")
-    prods = db.query("produtos", filters={"D_E_L_E_T":0})
+    prods = db.query("produtos", filters={"d_e_l_e_t":0})
     p = next((x for x in prods if x["id"]==pid), None)
     if not p:
         st.session_state.pagina="estoque"; st.rerun()
@@ -289,8 +289,8 @@ def pagina_vendas():
     if c2.button("➕ Nova", use_container_width=True, type="primary"):
         st.session_state.pagina="nova_venda"; st.rerun()
     status_f = st.selectbox("Status", ["Todos","orcamento","confirmada","entregue","cancelada"])
-    vendas   = db.query("vendas", filters={"D_E_L_E_T":0})
-    clientes_map = {c["id"]: c["nome"] for c in db.query("clientes", filters={"D_E_L_E_T":0})}
+    vendas   = db.query("vendas", filters={"d_e_l_e_t":0})
+    clientes_map = {c["id"]: c["nome"] for c in db.query("clientes", filters={"d_e_l_e_t":0})}
     if status_f != "Todos":
         vendas = [v for v in vendas if v["status"]==status_f]
     if busca:
@@ -307,8 +307,8 @@ def pagina_vendas():
             col1.write(f"**Status:** {v['status']}")
             col1.write(f"**Pagamento:** {v['forma_pagamento'] or '—'}")
             col2.write(f"**Total:** R$ {float(v['total'] or 0):,.2f}")
-            itens = db.query("venda_itens", filters={"id_venda":v["id"],"D_E_L_E_T":0})
-            prods_map = {p["id"]: p["nome"] for p in db.query("produtos",{"D_E_L_E_T":0})}
+            itens = db.query("venda_itens", filters={"id_venda":v["id"],"d_e_l_e_t":0})
+            prods_map = {p["id"]: p["nome"] for p in db.query("produtos",{"d_e_l_e_t":0})}
             for it in itens:
                 st.write(f"  • {prods_map.get(it['id_produto'],'?')} × {it['quantidade']} = R$ {float(it['subtotal'] or 0):,.2f}")
             if v["status"] not in ["cancelada","entregue"]:
@@ -318,19 +318,19 @@ def pagina_vendas():
                 if bb.button("❌ Cancelar", key=f"cv{v['id']}"):
                     if v["status"]=="confirmada":
                         for it in itens:
-                            p = next((x for x in db.query("produtos",{"D_E_L_E_T":0}) if x["id"]==it["id_produto"]),None)
+                            p = next((x for x in db.query("produtos",{"d_e_l_e_t":0}) if x["id"]==it["id_produto"]),None)
                             if p:
                                 db.update("produtos",{"estoque_atual": p["estoque_atual"]+it["quantidade"]},{"id":p["id"]})
                     db.update("vendas",{"status":"cancelada"},{"id":v["id"]}); st.rerun()
 
 def pagina_nova_venda():
     eid = st.session_state.get("editar_venda_id")
-    v   = next((x for x in db.query("vendas",{"D_E_L_E_T":0}) if x["id"]==eid), None) if eid else None
+    v   = next((x for x in db.query("vendas",{"d_e_l_e_t":0}) if x["id"]==eid), None) if eid else None
     st.title("✏️ Editar Venda" if v else "💰 Nova Venda")
     if st.button("← Voltar"):
         st.session_state.pop("editar_venda_id",None); st.session_state.pagina="vendas"; st.rerun()
-    clientes = db.query("clientes", filters={"D_E_L_E_T":0})
-    produtos  = db.query("produtos",  filters={"D_E_L_E_T":0})
+    clientes = db.query("clientes", filters={"d_e_l_e_t":0})
+    produtos  = db.query("produtos",  filters={"d_e_l_e_t":0})
     cli_opts  = {"— Balcão —": None} | {c["nome"]: c["id"] for c in clientes}
     prod_opts = {f"[{p['codigo'] or '—'}] {p['nome']} — R$ {float(p['preco_venda'] or 0):,.2f}": p for p in produtos}
     with st.form("fv"):
@@ -368,14 +368,14 @@ def pagina_nova_venda():
                 db.update("vendas",dict(id_cliente=id_cliente,status=status,
                           forma_pagamento=forma,observacoes=obs,total=total),{"id":eid})
                 if vant and vant["status"]=="confirmada":
-                    for it in db.query("venda_itens",{"id_venda":eid,"D_E_L_E_T":0}):
+                    for it in db.query("venda_itens",{"id_venda":eid,"d_e_l_e_t":0}):
                         p = next((x for x in produtos if x["id"]==it["id_produto"]),None)
                         if p: db.update("produtos",{"estoque_atual":p["estoque_atual"]+it["quantidade"]},{"id":p["id"]})
-                db.update("venda_itens",{"D_E_L_E_T":1},{"id_venda":eid})
+                db.update("venda_itens",{"d_e_l_e_t":1},{"id_venda":eid})
                 vid = eid
             else:
                 hoje = datetime.date.today()
-                vends_hoje = db.query("vendas", filters={"D_E_L_E_T":0})
+                vends_hoje = db.query("vendas", filters={"d_e_l_e_t":0})
                 seq  = sum(1 for x in vends_hoje if (x["datestamp_insert"] or "")[:10] == str(hoje)) + 1
                 num  = f"V{hoje.strftime('%Y%m%d')}-{seq:04d}"
                 row  = db.insert("vendas", dict(numero_venda=num,id_cliente=id_cliente,
