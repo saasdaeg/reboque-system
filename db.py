@@ -1,15 +1,19 @@
 import pg8000.native
+import ssl
 import streamlit as st
 
 def get_conn():
     s = st.secrets["supabase"]
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
     return pg8000.native.Connection(
         host=s["host"],
         port=int(s.get("port", 5432)),
         database=s.get("dbname", "postgres"),
         user=s.get("user", "postgres"),
         password=s["password"],
-        ssl_context=True
+        ssl_context=ctx
     )
 
 def _to_dicts(conn, rows):
@@ -19,7 +23,6 @@ def _to_dicts(conn, rows):
     return [dict(zip(cols, row)) for row in rows]
 
 def _build(sql, params):
-    """Converte %s para :1 :2 ... que o pg8000 usa"""
     if not params:
         return sql, {}
     new_sql = sql
