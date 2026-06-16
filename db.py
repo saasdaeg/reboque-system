@@ -1,58 +1,50 @@
-import pg8000.native
-import ssl
 import streamlit as st
+from supabase import create_client, Client
 
-def get_conn():
+@st.cache_resource
+def get_client() -> Client:
     s = st.secrets["supabase"]
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    return pg8000.native.Connection(
-        host=s["host"],
-        port=int(s.get("port", 5432)),
-        database=s.get("dbname", "postgres"),
-        user=s.get("user", "postgres"),
-        password=s["password"],
-        ssl_context=ctx
-    )
+    return create_client(s["url"], s["key"])
 
-def _to_dicts(conn, rows):
-    if not rows:
-        return []
-    cols = [c["name"] for c in conn.columns]
-    return [dict(zip(cols, row)) for row in rows]
+def _sb():
+    return get_client()
 
-def _build(sql, params):
-    if not params:
-        return sql, {}
-    new_sql = sql
-    kw = {}
-    for i, v in enumerate(params, 1):
-        new_sql = new_sql.replace("%s", f":{i}", 1)
-        kw[str(i)] = v
-    return new_sql, kw
+# ── Helpers que imitam a interface antiga ──────────────────────
 
-def query(sql, params=None):
-    conn = get_conn()
-    try:
-        s, kw = _build(sql, params)
-        rows = conn.run(s, **kw)
-        return _to_dicts(conn, rows)
-    finally:
-        conn.close()
+def query(table_or_sql, filters=None, order=None, limit=None, search=None):
+    """SELECT na tabela com filtros opcionais"""
+    q = _sb().table(table_or_sql).select("*")
+    if filters:
+        for col, val in filters.items():
+            q = q.eq(col, val)
+    if order:
+        q = q.order(order)
+    if limit:
+        q = q.limit(limit)
+    return q.execute().data or []
 
-def query_one(sql, params=None):
-    rows = query(sql, params)
+def query_one(table, filters):
+    rows = query(table, filters)
     return rows[0] if rows else None
 
-def execute(sql, params=None):
-    conn = get_conn()
-    try:
-        s, kw = _build(sql, params)
-        rows = conn.run(s, **kw)
-        cols = [c["name"] for c in conn.columns] if conn.columns else []
-        if rows and cols:
-            return dict(zip(cols, rows[0]))
-        return None
-    finally:
-        conn.close()
+def insert(table, data):
+    return (_sb().table(table).insert(data).execute().data or [None])[0]
+
+def update(table, data, filters):
+    q = _sb().table(table).update(data)
+    for col, val in filters.items():
+        q = q.eq(col, val)
+    return q.execute().data
+
+def soft_delete(table, id):
+    return update(table, {"D_E_L_E_T": 1}, {"id": id})
+
+def count(table, filters=None):
+    q = _sb().table(table).select("id", count="exact")
+    if filters:
+        for col, val in filters.items():
+            q = q.eq(col, val)
+    return q.execute().count or 0
+
+def rpc(func_name, params=None):
+    return _sb().rpc(func_name, params or {}).execute().data
