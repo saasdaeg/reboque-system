@@ -1,49 +1,55 @@
-import psycopg2
-import psycopg2.extras
+import pg8000.native
 import streamlit as st
-from contextlib import contextmanager
 
 def get_conn():
     s = st.secrets["supabase"]
-    return psycopg2.connect(
+    return pg8000.native.Connection(
         host=s["host"],
-        port=s.get("port", 5432),
-        dbname=s.get("dbname", "postgres"),
+        port=int(s.get("port", 5432)),
+        database=s.get("dbname", "postgres"),
         user=s.get("user", "postgres"),
         password=s["password"],
-        sslmode="require",
-        cursor_factory=psycopg2.extras.RealDictCursor
+        ssl_context=True
     )
 
-@contextmanager
-def db():
+def _to_dicts(conn, rows):
+    if not rows:
+        return []
+    cols = [c["name"] for c in conn.columns]
+    return [dict(zip(cols, row)) for row in rows]
+
+def _build(sql, params):
+    """Converte %s para :1 :2 ... que o pg8000 usa"""
+    if not params:
+        return sql, {}
+    new_sql = sql
+    kw = {}
+    for i, v in enumerate(params, 1):
+        new_sql = new_sql.replace("%s", f":{i}", 1)
+        kw[str(i)] = v
+    return new_sql, kw
+
+def query(sql, params=None):
     conn = get_conn()
     try:
-        yield conn
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
+        s, kw = _build(sql, params)
+        rows = conn.run(s, **kw)
+        return _to_dicts(conn, rows)
     finally:
         conn.close()
 
-def query(sql, params=None):
-    with db() as conn:
-        cur = conn.cursor()
-        cur.execute(sql, params or ())
-        return cur.fetchall()
-
 def query_one(sql, params=None):
-    with db() as conn:
-        cur = conn.cursor()
-        cur.execute(sql, params or ())
-        return cur.fetchone()
+    rows = query(sql, params)
+    return rows[0] if rows else None
 
 def execute(sql, params=None):
-    with db() as conn:
-        cur = conn.cursor()
-        cur.execute(sql, params or ())
-        try:
-            return cur.fetchone()
-        except Exception:
-            return None
+    conn = get_conn()
+    try:
+        s, kw = _build(sql, params)
+        rows = conn.run(s, **kw)
+        cols = [c["name"] for c in conn.columns] if conn.columns else []
+        if rows and cols:
+            return dict(zip(cols, rows[0]))
+        return None
+    finally:
+        conn.close()
