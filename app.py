@@ -51,19 +51,22 @@ def pagina_login():
         st.markdown("## 🚛 CarreRebok")
         st.markdown("**Sistema de Gestão de Carretinhas e Reboques**")
         st.markdown("---")
-        email = st.text_input("E-mail", placeholder="admin@reboque.com")
+        login_input = st.text_input("Login", placeholder="admin")
         senha = st.text_input("Senha", type="password")
         if st.button("Entrar", use_container_width=True, type="primary"):
-            if email and senha:
-                rows = db.query("usuarios", filters={"email": email.strip().lower(), "ativo": 1, "d_e_l_e_t": 0})
-                if rows and check_password_hash(rows[0]["senha_hash"], senha):
-                    st.session_state.usuario = rows[0]
+            if login_input and senha:
+                todos = db.query("usuarios", filters={"ativo": 1, "d_e_l_e_t": 0})
+                val = login_input.strip().lower()
+                row = next((u for u in todos if
+                    (u.get("login") or "").lower() == val), None)
+                if row and check_password_hash(row["senha_hash"], senha):
+                    st.session_state.usuario = row
                     st.session_state.pagina = "dashboard"
                     st.rerun()
                 else:
-                    st.error("E-mail ou senha incorretos.")
+                    st.error("Login ou senha incorretos.")
             else:
-                st.warning("Preencha e-mail e senha.")
+                st.warning("Preencha o login e a senha.")
 
 # ════════════════════════════════════════════════════════════
 #  SIDEBAR
