@@ -2,3 +2,4 @@ streamlit
 supabase==2.9.1
 werkzeug
 httpx[http2]
+openpyxl
