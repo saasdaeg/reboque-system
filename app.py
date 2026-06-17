@@ -127,6 +127,78 @@ def pagina_dashboard():
     if q3.button("📦 Novo Produto", use_container_width=True):
         st.session_state.pagina="novo_produto"; st.rerun()
 
+    # ── Gráfico faturamento por mês ──────────────────────────
+    st.markdown("---")
+    st.subheader("📈 Faturamento por Mês")
+    vendas_fat = [v for v in vendas_all if v["status"] in ("confirmada","entregue")]
+    fat_mes = {}
+    for v in vendas_fat:
+        dt = v.get("datestamp_insert") or ""
+        if dt:
+            mes = str(dt)[:7]  # "2026-06"
+            fat_mes[mes] = fat_mes.get(mes, 0) + float(v["total"] or 0)
+    if fat_mes:
+        import pandas as pd
+        meses_sorted = sorted(fat_mes.keys())
+        df_fat = pd.DataFrame({
+            "Mês": [m for m in meses_sorted],
+            "Faturamento (R$)": [fat_mes[m] for m in meses_sorted]
+        })
+        st.bar_chart(df_fat.set_index("Mês"))
+    else:
+        st.info("Nenhuma venda confirmada ou entregue ainda.")
+
+    # ── Margem por produto vendido ───────────────────────────
+    st.markdown("---")
+    st.subheader("📦 Margem por Produto Vendido")
+    itens_vendidos = []
+    for v in vendas_fat:
+        its = db.query("venda_itens", filters={"id_venda": v["id"], "d_e_l_e_t": 0})
+        for it in its:
+            itens_vendidos.append(it)
+
+    prods_todos = db.query("produtos", filters={"d_e_l_e_t": 0})
+    prod_info   = {p["id"]: p for p in prods_todos}
+
+    # Agrupar por produto
+    resumo = {}
+    for it in itens_vendidos:
+        pid  = it["id_produto"]
+        p    = prod_info.get(pid)
+        if not p: continue
+        if pid not in resumo:
+            resumo[pid] = {
+                "nome":         p["nome"],
+                "custo":        float(p["preco_custo"] or 0),
+                "qtd_vendida":  0,
+                "receita":      0.0,
+            }
+        resumo[pid]["qtd_vendida"] += it["quantidade"]
+        resumo[pid]["receita"]     += float(it["subtotal"] or 0)
+
+    if resumo:
+        rows = []
+        for pid, r in resumo.items():
+            preco_medio = r["receita"] / r["qtd_vendida"] if r["qtd_vendida"] else 0
+            custo_total = r["custo"] * r["qtd_vendida"]
+            lucro       = r["receita"] - custo_total
+            margem_pct  = (lucro / r["receita"] * 100) if r["receita"] else 0
+            variacao    = ((preco_medio - r["custo"]) / r["custo"] * 100) if r["custo"] else 0
+            rows.append({
+                "Produto":        r["nome"],
+                "Qtd Vendida":    r["qtd_vendida"],
+                "Receita (R$)":   f"R$ {r['receita']:,.2f}",
+                "Custo Total(R$)":f"R$ {custo_total:,.2f}",
+                "Lucro (R$)":     f"R$ {lucro:,.2f}",
+                "Margem %":       f"{margem_pct:.1f}%",
+                "Variação Preço": f"{variacao:+.1f}%",
+            })
+        import pandas as pd
+        df_m = pd.DataFrame(rows)
+        st.dataframe(df_m, use_container_width=True, hide_index=True)
+    else:
+        st.info("Nenhum produto vendido ainda.")
+
 # ════════════════════════════════════════════════════════════
 #  CLIENTES
 # ════════════════════════════════════════════════════════════
