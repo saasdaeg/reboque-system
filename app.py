@@ -8,6 +8,22 @@ st.markdown("""
 <style>
 [data-testid="stSidebar"] { background: #1a3a5c; }
 [data-testid="stSidebar"] * { color: #fff !important; }
+
+/* Botões da sidebar */
+[data-testid="stSidebar"] .stButton > button {
+    background-color: rgba(255,255,255,0.15) !important;
+    color: #ffffff !important;
+    border: 1px solid rgba(255,255,255,0.3) !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    width: 100% !important;
+}
+[data-testid="stSidebar"] .stButton > button:hover {
+    background-color: rgba(255,255,255,0.28) !important;
+    color: #ffffff !important;
+    border-color: rgba(255,255,255,0.6) !important;
+}
+
 div[data-testid="metric-container"] {
     background:#fff;border-radius:10px;padding:16px;
     border-left:4px solid #2563a8;box-shadow:0 1px 3px rgba(0,0,0,.07);
