@@ -404,11 +404,19 @@ def pagina_nova_venda():
 
         st.markdown("**🛒 Produtos da Venda**")
         n = st.session_state[key_n]
+        # Controle de linhas removidas
+        key_rem = f"rem_itens_{eid or 'novo'}"
+        if key_rem not in st.session_state:
+            st.session_state[key_rem] = []
         itens_form = []
         total = 0.0
+        linha = 0
         for i in range(n):
-            st.markdown(f"**Produto {i+1}**")
-            ic1,ic2,ic3 = st.columns([3,1,1])
+            if i in st.session_state[key_rem]:
+                continue
+            linha += 1
+            st.markdown(f"**Produto {linha}**")
+            ic1,ic2,ic3,ic4 = st.columns([3,1,1,0.5])
             pk   = ic1.selectbox("Produto", list(prod_opts.keys()), key=f"p{i}")
             pobj = prod_opts[pk]
             qtd  = ic2.number_input("Quantidade", min_value=1, step=1, value=1, key=f"q{i}")
@@ -417,6 +425,11 @@ def pagina_nova_venda():
             total += sub
             st.caption(f"Subtotal: R$ {sub:,.2f}")
             itens_form.append({"id_produto":pobj["id"],"qtd":qtd,"preco":preco,"sub":sub})
+            linhas_ativas = n - len(st.session_state[key_rem])
+            remover = ic4.form_submit_button("🗑️", key=f"rem{i}", help="Remover produto", disabled=(linhas_ativas <= 1))
+            if remover and linhas_ativas > 1:
+                st.session_state[key_rem].append(i)
+                st.rerun()
 
         st.markdown(f"### 💰 Total: R$ {total:,.2f}")
         ca, cb = st.columns(2)
@@ -426,6 +439,7 @@ def pagina_nova_venda():
             st.session_state[key_n] += 1
             st.rerun()
         if salvar:
+            st.session_state.pop(key_rem, None)
             uid = st.session_state.usuario["id"]
             id_cliente = cli_opts[cli_sel]
             if eid:
