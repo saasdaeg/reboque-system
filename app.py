@@ -265,10 +265,47 @@ def pagina_novo_cliente():
 # ════════════════════════════════════════════════════════════
 def pagina_estoque():
     st.title("📦 Estoque")
-    c1,c2 = st.columns([4,1])
+    c1,c2,c3 = st.columns([3,1,1])
     busca = c1.text_input("Buscar", placeholder="Nome, código ou categoria...", label_visibility="collapsed")
     if c2.button("➕ Novo", use_container_width=True, type="primary"):
         st.session_state.pagina="novo_produto"; st.rerun()
+
+    # Exportar Excel
+    todos_prods = db.query("produtos", filters={"d_e_l_e_t":0})
+    if c3.button("📥 Exportar Excel", use_container_width=True):
+        import pandas as pd
+        import io
+        rows = []
+        for p in todos_prods:
+            reservado  = p.get("estoque_reservado") or 0
+            disponivel = p["estoque_atual"] - reservado
+            rows.append({
+                "Código":          p["codigo"] or "",
+                "Nome":            p["nome"],
+                "Categoria":       p["categoria"] or "",
+                "Unidade":         p["unidade"] or "UN",
+                "Estoque Total":   p["estoque_atual"],
+                "Reservado":       reservado,
+                "Disponível":      disponivel,
+                "Estoque Mínimo":  p["estoque_minimo"],
+                "Preço Custo":     float(p["preco_custo"] or 0),
+                "Preço Venda":     float(p["preco_venda"] or 0),
+            })
+        df = pd.DataFrame(rows)
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name="Estoque")
+            ws = writer.sheets["Estoque"]
+            # Ajustar largura das colunas
+            for col in ws.columns:
+                max_len = max(len(str(cell.value or "")) for cell in col) + 4
+                ws.column_dimensions[col[0].column_letter].width = min(max_len, 40)
+        buf.seek(0)
+        import datetime
+        nome_arq = f"estoque_{datetime.date.today().strftime('%Y%m%d')}.xlsx"
+        st.download_button("⬇️ Baixar planilha", data=buf, file_name=nome_arq,
+                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                           use_container_width=True)
     prods = db.query("produtos", filters={"d_e_l_e_t":0})
     if busca:
         b = busca.lower()
