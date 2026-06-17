@@ -521,12 +521,27 @@ def pagina_nova_venda():
             db.insert("venda_itens", dict(id_venda=vid,id_produto=it["id_produto"],
                       quantidade=it["qtd"],preco_unitario=it["preco"],subtotal=it["sub"],d_e_l_e_t=0))
 
+        # Validar estoque antes de confirmar ou entregar
+        if status in ("confirmada", "entregue"):
+            erros = []
+            for it in itens_form:
+                p = prod_map_atual.get(it["id_produto"])
+                if p:
+                    disponivel = p["estoque_atual"] - (p.get("estoque_reservado") or 0)
+                    if it["qtd"] > disponivel:
+                        erros.append(f"❌ **{p['nome']}**: disponível {disponivel} un, pedido {it['qtd']} un")
+            if erros:
+                # Desfazer o insert da venda se foi nova
+                if not eid:
+                    db.update("vendas",{"d_e_l_e_t":1},{"id":vid})
+                st.error("Estoque insuficiente:\n" + "\n".join(erros))
+                st.stop()
+
         # Aplicar movimentação de estoque conforme status
         for it in itens_form:
             p = prod_map_atual.get(it["id_produto"])
             if not p: continue
             if status == "confirmada":
-                # Reservar estoque
                 novo_res = (p.get("estoque_reservado") or 0) + it["qtd"]
                 db.update("produtos",{"estoque_reservado": novo_res},{"id":p["id"]})
                 db.insert("movimentos_estoque", dict(
@@ -534,7 +549,6 @@ def pagina_nova_venda():
                     quantidade=it["qtd"], motivo=f"Reserva venda {vid}",
                     usuario_insert=uid))
             elif status == "entregue":
-                # Baixar estoque diretamente
                 novo_est = max(0, p["estoque_atual"] - it["qtd"])
                 db.update("produtos",{"estoque_atual": novo_est},{"id":p["id"]})
                 db.insert("movimentos_estoque", dict(
