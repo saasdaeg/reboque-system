@@ -441,8 +441,9 @@ def pagina_nova_venda():
             st.rerun()
 
         p_venda = float(prod_map[pid_sel]["preco_venda"] or 0)
+        ic1.caption(f"💰 Preço de venda: R$ {p_venda:,.2f}")
         qtd   = ic2.number_input("Qtd", min_value=1, step=1, value=item["qtd"], key=f"qs{i}")
-        preco = ic3.number_input(f"Preço R$ (tabela: {p_venda:,.2f})", min_value=0.0, step=0.01, value=item["preco"], key=f"prs{i}")
+        preco = ic3.number_input("Preço Unit. R$", min_value=0.0, step=0.01, value=item["preco"], key=f"prs{i}")
 
         # Atualizar qtd e preco no state
         itens_ss[i]["qtd"]   = qtd
