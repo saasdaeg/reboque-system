@@ -467,7 +467,25 @@ def pagina_nova_venda():
         itens_form = [{"id_produto":it["id_produto"],"qtd":it["qtd"],"preco":it["preco"],"sub":it["qtd"]*it["preco"]} for it in itens_ss]
         total_final = sum(x["sub"] for x in itens_form)
 
+        # Pegar produtos atualizados do banco
+        prods_atual = db.query("produtos", filters={"d_e_l_e_t":0})
+        prod_map_atual = {p["id"]: p for p in prods_atual}
+
         if eid:
+            # Reverter reserva/estoque da venda antiga antes de salvar nova versão
+            status_antigo = v["status"] if v else "orcamento"
+            itens_antigos = db.query("venda_itens", filters={"id_venda":eid,"d_e_l_e_t":0})
+            for it in itens_antigos:
+                p = prod_map_atual.get(it["id_produto"])
+                if p:
+                    if status_antigo == "confirmada":
+                        novo_res = max(0, (p.get("estoque_reservado") or 0) - it["quantidade"])
+                        db.update("produtos",{"estoque_reservado": novo_res},{"id":p["id"]})
+                        prod_map_atual[p["id"]]["estoque_reservado"] = novo_res
+                    elif status_antigo == "entregue":
+                        novo_est = p["estoque_atual"] + it["quantidade"]
+                        db.update("produtos",{"estoque_atual": novo_est},{"id":p["id"]})
+                        prod_map_atual[p["id"]]["estoque_atual"] = novo_est
             db.update("vendas",dict(id_cliente=id_cliente,status=status,
                       forma_pagamento=forma,observacoes=obs,total=total_final),{"id":eid})
             db.update("venda_itens",{"d_e_l_e_t":1},{"id_venda":eid})
@@ -485,6 +503,27 @@ def pagina_nova_venda():
         for it in itens_form:
             db.insert("venda_itens", dict(id_venda=vid,id_produto=it["id_produto"],
                       quantidade=it["qtd"],preco_unitario=it["preco"],subtotal=it["sub"],d_e_l_e_t=0))
+
+        # Aplicar movimentação de estoque conforme status
+        for it in itens_form:
+            p = prod_map_atual.get(it["id_produto"])
+            if not p: continue
+            if status == "confirmada":
+                # Reservar estoque
+                novo_res = (p.get("estoque_reservado") or 0) + it["qtd"]
+                db.update("produtos",{"estoque_reservado": novo_res},{"id":p["id"]})
+                db.insert("movimentos_estoque", dict(
+                    id_produto=it["id_produto"], tipo="reserva",
+                    quantidade=it["qtd"], motivo=f"Reserva venda {vid}",
+                    usuario_insert=uid))
+            elif status == "entregue":
+                # Baixar estoque diretamente
+                novo_est = max(0, p["estoque_atual"] - it["qtd"])
+                db.update("produtos",{"estoque_atual": novo_est},{"id":p["id"]})
+                db.insert("movimentos_estoque", dict(
+                    id_produto=it["id_produto"], tipo="saida",
+                    quantidade=it["qtd"], motivo=f"Entrega venda {vid}",
+                    id_venda=vid, usuario_insert=uid))
 
         st.success("✅ Venda salva!")
         st.session_state.pop(key_itens, None)
