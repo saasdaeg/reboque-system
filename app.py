@@ -293,8 +293,22 @@ def _acao_venda(vid, acao):
     itens = db.query("venda_itens", filters={"id_venda":vid,"d_e_l_e_t":0})
 
     if acao == "confirmar" and v["status"] == "orcamento":
+        # Verificar se há estoque disponível para todos os itens
+        prods = db.query("produtos",{"d_e_l_e_t":0})
+        prod_map_check = {p["id"]: p for p in prods}
+        erros = []
         for it in itens:
-            p = next((x for x in db.query("produtos",{"d_e_l_e_t":0}) if x["id"]==it["id_produto"]),None)
+            p = prod_map_check.get(it["id_produto"])
+            if p:
+                disponivel = p["estoque_atual"] - (p.get("estoque_reservado") or 0)
+                if it["quantidade"] > disponivel:
+                    erros.append(f"❌ **{p['nome']}**: disponível {disponivel} un, pedido {it['quantidade']} un")
+        if erros:
+            st.error("Estoque insuficiente para confirmar:\n" + "\n".join(erros))
+            return
+        # Tudo ok, reservar
+        for it in itens:
+            p = prod_map_check.get(it["id_produto"])
             if p:
                 novo_res = (p.get("estoque_reservado") or 0) + it["quantidade"]
                 db.update("produtos",{"estoque_reservado": novo_res},{"id":p["id"]})
