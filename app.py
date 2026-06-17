@@ -285,8 +285,56 @@ def pagina_movimentar():
 # ════════════════════════════════════════════════════════════
 #  VENDAS
 # ════════════════════════════════════════════════════════════
+def _acao_venda(vid, acao):
+    """Executa ação na venda fora do expander para evitar bug do Streamlit"""
+    vendas = db.query("vendas", filters={"d_e_l_e_t":0})
+    v = next((x for x in vendas if x["id"]==vid), None)
+    if not v: return
+    itens = db.query("venda_itens", filters={"id_venda":vid,"d_e_l_e_t":0})
+
+    if acao == "confirmar" and v["status"] == "orcamento":
+        for it in itens:
+            p = next((x for x in db.query("produtos",{"d_e_l_e_t":0}) if x["id"]==it["id_produto"]),None)
+            if p:
+                novo_res = (p.get("estoque_reservado") or 0) + it["quantidade"]
+                db.update("produtos",{"estoque_reservado": novo_res},{"id":p["id"]})
+        db.update("vendas",{"status":"confirmada"},{"id":vid})
+        st.success("✅ Venda confirmada! Estoque reservado.")
+
+    elif acao == "entregar" and v["status"] == "confirmada":
+        for it in itens:
+            p = next((x for x in db.query("produtos",{"d_e_l_e_t":0}) if x["id"]==it["id_produto"]),None)
+            if p:
+                novo_est = max(0, p["estoque_atual"] - it["quantidade"])
+                novo_res = max(0, (p.get("estoque_reservado") or 0) - it["quantidade"])
+                db.update("produtos",{"estoque_atual": novo_est, "estoque_reservado": novo_res},{"id":p["id"]})
+                db.insert("movimentos_estoque", dict(
+                    id_produto=it["id_produto"], tipo="saida",
+                    quantidade=it["quantidade"],
+                    motivo=f"Entrega venda {v['numero_venda']}",
+                    usuario_insert=st.session_state.usuario["id"]
+                ))
+        db.update("vendas",{"status":"entregue"},{"id":vid})
+        st.success("📦 Entregue! Estoque baixado.")
+
+    elif acao == "cancelar" and v["status"] not in ["cancelada","entregue"]:
+        if v["status"] == "confirmada":
+            for it in itens:
+                p = next((x for x in db.query("produtos",{"d_e_l_e_t":0}) if x["id"]==it["id_produto"]),None)
+                if p:
+                    novo_res = max(0, (p.get("estoque_reservado") or 0) - it["quantidade"])
+                    db.update("produtos",{"estoque_reservado": novo_res},{"id":p["id"]})
+        db.update("vendas",{"status":"cancelada"},{"id":vid})
+        st.success("Venda cancelada!" + (" Reserva liberada." if v["status"]=="confirmada" else ""))
+
 def pagina_vendas():
     st.title("💰 Vendas")
+
+    # Processar ação pendente ANTES de renderizar
+    if "acao_venda" in st.session_state:
+        vid, acao = st.session_state.pop("acao_venda")
+        _acao_venda(vid, acao)
+
     c1,c2 = st.columns([4,1])
     busca = c1.text_input("Buscar", placeholder="Nº da venda ou cliente...", label_visibility="collapsed")
     if c2.button("➕ Nova", use_container_width=True, type="primary"):
@@ -314,51 +362,18 @@ def pagina_vendas():
             prods_map = {p["id"]: p["nome"] for p in db.query("produtos",{"d_e_l_e_t":0})}
             for it in itens:
                 st.write(f"  • {prods_map.get(it['id_produto'],'?')} × {it['quantidade']} = R$ {float(it['subtotal'] or 0):,.2f}")
-            # Botões fora do loop de itens
             ba,bb,bc = st.columns(3)
             if ba.button("✏️ Editar", key=f"ev{v['id']}"):
                 st.session_state["editar_venda_id"]=v["id"]; st.session_state.pagina="nova_venda"; st.rerun()
             if v["status"] not in ["cancelada","entregue"]:
-                if bb.button("❌ Cancelar Venda", key=f"cv{v['id']}"):
-                    if v["status"] == "confirmada":
-                        # Liberar reserva
-                        for it in itens:
-                            p = next((x for x in db.query("produtos",{"d_e_l_e_t":0}) if x["id"]==it["id_produto"]),None)
-                            if p:
-                                novo_res = max(0, (p.get("estoque_reservado") or 0) - it["quantidade"])
-                                db.update("produtos",{"estoque_reservado": novo_res},{"id":p["id"]})
-                    db.update("vendas",{"status":"cancelada"},{"id":v["id"]})
-                    st.success("Venda cancelada!" + (" Reserva liberada." if v["status"]=="confirmada" else ""))
-                    st.rerun()
+                if bb.button("❌ Cancelar", key=f"cv{v['id']}"):
+                    st.session_state["acao_venda"] = (v["id"], "cancelar"); st.rerun()
             if v["status"] == "orcamento":
-                if bc.button("✅ Confirmar Venda", key=f"conf{v['id']}"):
-                    # RESERVAR estoque (não baixa ainda)
-                    for it in itens:
-                        p = next((x for x in db.query("produtos",{"d_e_l_e_t":0}) if x["id"]==it["id_produto"]),None)
-                        if p:
-                            novo_res = (p.get("estoque_reservado") or 0) + it["quantidade"]
-                            db.update("produtos",{"estoque_reservado": novo_res},{"id":p["id"]})
-                    db.update("vendas",{"status":"confirmada"},{"id":v["id"]})
-                    st.success("✅ Venda confirmada! Estoque reservado.")
-                    st.rerun()
+                if bc.button("✅ Confirmar", key=f"conf{v['id']}"):
+                    st.session_state["acao_venda"] = (v["id"], "confirmar"); st.rerun()
             if v["status"] == "confirmada":
-                if bc.button("📦 Marcar Entregue", key=f"entr{v['id']}"):
-                    # BAIXAR estoque e liberar reserva
-                    for it in itens:
-                        p = next((x for x in db.query("produtos",{"d_e_l_e_t":0}) if x["id"]==it["id_produto"]),None)
-                        if p:
-                            novo_est = max(0, p["estoque_atual"] - it["quantidade"])
-                            novo_res = max(0, (p.get("estoque_reservado") or 0) - it["quantidade"])
-                            db.update("produtos",{"estoque_atual": novo_est, "estoque_reservado": novo_res},{"id":p["id"]})
-                            db.insert("movimentos_estoque", dict(
-                                id_produto=it["id_produto"], tipo="saida",
-                                quantidade=it["quantidade"],
-                                motivo=f"Entrega venda {v['numero_venda']}",
-                                usuario_insert=st.session_state.usuario["id"]
-                            ))
-                    db.update("vendas",{"status":"entregue"},{"id":v["id"]})
-                    st.success("📦 Entregue! Estoque baixado.")
-                    st.rerun()
+                if bc.button("📦 Entregar", key=f"entr{v['id']}"):
+                    st.session_state["acao_venda"] = (v["id"], "entregar"); st.rerun()
 
 def pagina_nova_venda():
     eid = st.session_state.get("editar_venda_id")
@@ -370,6 +385,11 @@ def pagina_nova_venda():
     produtos  = db.query("produtos",  filters={"d_e_l_e_t":0})
     cli_opts  = {"— Balcão —": None} | {c["nome"]: c["id"] for c in clientes}
     prod_opts = {f"[{p['codigo'] or '—'}] {p['nome']} — R$ {float(p['preco_venda'] or 0):,.2f} | Disp: {p['estoque_atual']-(p.get('estoque_reservado') or 0)} un": p for p in produtos}
+    # Controle de quantidade de itens via session_state
+    key_n = f"n_itens_{eid or 'novo'}"
+    if key_n not in st.session_state:
+        st.session_state[key_n] = max(1, len(db.query("venda_itens", filters={"id_venda":eid,"d_e_l_e_t":0})) if eid else 1)
+
     with st.form("fv"):
         col1,col2,col3 = st.columns(3)
         cli_sel = col1.selectbox("Cliente", list(cli_opts.keys()))
@@ -381,23 +401,31 @@ def pagina_nova_venda():
         f_def   = formas.index(v["forma_pagamento"]) if v and v["forma_pagamento"] in formas else 0
         forma   = col3.selectbox("Pagamento", formas, index=f_def)
         obs     = st.text_area("Observações", value=v["observacoes"] if v else "")
-        st.markdown("**🛒 Itens**")
-        n = st.number_input("Qtd de itens", min_value=1, max_value=20, step=1, value=1)
+
+        st.markdown("**🛒 Produtos da Venda**")
+        n = st.session_state[key_n]
         itens_form = []
         total = 0.0
-        for i in range(int(n)):
-            st.markdown(f"**Item {i+1}**")
+        for i in range(n):
+            st.markdown(f"**Produto {i+1}**")
             ic1,ic2,ic3 = st.columns([3,1,1])
             pk   = ic1.selectbox("Produto", list(prod_opts.keys()), key=f"p{i}")
             pobj = prod_opts[pk]
-            qtd  = ic2.number_input("Qtd", min_value=1, step=1, value=1, key=f"q{i}")
-            preco= ic3.number_input("Preço", min_value=0.0, step=0.01, value=float(pobj["preco_venda"] or 0), key=f"pr{i}")
+            qtd  = ic2.number_input("Quantidade", min_value=1, step=1, value=1, key=f"q{i}")
+            preco= ic3.number_input("Preço Unit. R$", min_value=0.0, step=0.01, value=float(pobj["preco_venda"] or 0), key=f"pr{i}")
             sub  = qtd * preco
             total += sub
             st.caption(f"Subtotal: R$ {sub:,.2f}")
             itens_form.append({"id_produto":pobj["id"],"qtd":qtd,"preco":preco,"sub":sub})
+
         st.markdown(f"### 💰 Total: R$ {total:,.2f}")
-        if st.form_submit_button("💾 Salvar Venda", type="primary", use_container_width=True):
+        ca, cb = st.columns(2)
+        add = ca.form_submit_button("➕ Adicionar Produto", use_container_width=True)
+        salvar = cb.form_submit_button("💾 Salvar Venda", type="primary", use_container_width=True)
+        if add:
+            st.session_state[key_n] += 1
+            st.rerun()
+        if salvar:
             uid = st.session_state.usuario["id"]
             id_cliente = cli_opts[cli_sel]
             if eid:
