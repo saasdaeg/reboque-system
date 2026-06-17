@@ -398,7 +398,8 @@ def pagina_nova_venda():
             its = db.query("venda_itens", filters={"id_venda":eid,"d_e_l_e_t":0})
             st.session_state[key_itens] = [{"id_produto": it["id_produto"], "qtd": it["quantidade"], "preco": float(it["preco_unitario"] or 0)} for it in its] or [{"id_produto": prod_lista[0] if prod_lista else None, "qtd": 1, "preco": 0.0}]
         else:
-            st.session_state[key_itens] = [{"id_produto": prod_lista[0] if prod_lista else None, "qtd": 1, "preco": float(produtos[0]["preco_venda"] or 0) if produtos else 0.0}]
+            # Nova venda: preço começa em 0 para o usuário digitar
+            st.session_state[key_itens] = [{"id_produto": prod_lista[0] if prod_lista else None, "qtd": 1, "preco": 0.0}]
 
     itens_ss = st.session_state[key_itens]
 
@@ -433,14 +434,15 @@ def pagina_nova_venda():
         pid_sel   = ic1.selectbox("Produto", prod_lista, index=prod_idx,
                         format_func=lambda x: prod_nomes.get(x,"?"), key=f"ps{i}")
 
-        # Atualizar preço automaticamente ao trocar produto
+        # Ao trocar produto, preencher com preço de venda do cadastro
         if pid_sel != pid_atual:
             itens_ss[i]["id_produto"] = pid_sel
             itens_ss[i]["preco"] = float(prod_map[pid_sel]["preco_venda"] or 0)
             st.rerun()
 
+        p_venda = float(prod_map[pid_sel]["preco_venda"] or 0)
         qtd   = ic2.number_input("Qtd", min_value=1, step=1, value=item["qtd"], key=f"qs{i}")
-        preco = ic3.number_input("Preço R$", min_value=0.0, step=0.01, value=item["preco"], key=f"prs{i}")
+        preco = ic3.number_input(f"Preço R$ (tabela: {p_venda:,.2f})", min_value=0.0, step=0.01, value=item["preco"], key=f"prs{i}")
 
         # Atualizar qtd e preco no state
         itens_ss[i]["qtd"]   = qtd
@@ -458,7 +460,7 @@ def pagina_nova_venda():
     ca,cb = st.columns(2)
     if ca.button("➕ Adicionar Produto", use_container_width=True):
         p0 = prod_lista[0] if prod_lista else None
-        itens_ss.append({"id_produto": p0, "qtd": 1, "preco": float(prod_map[p0]["preco_venda"] or 0) if p0 else 0.0})
+        itens_ss.append({"id_produto": p0, "qtd": 1, "preco": 0.0})
         st.rerun()
 
     if cb.button("💾 Salvar Venda", type="primary", use_container_width=True):
