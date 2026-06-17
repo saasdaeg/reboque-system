@@ -380,101 +380,116 @@ def pagina_nova_venda():
     v   = next((x for x in db.query("vendas",{"d_e_l_e_t":0}) if x["id"]==eid), None) if eid else None
     st.title("✏️ Editar Venda" if v else "💰 Nova Venda")
     if st.button("← Voltar"):
-        st.session_state.pop("editar_venda_id",None); st.session_state.pagina="vendas"; st.rerun()
+        st.session_state.pop("editar_venda_id",None)
+        st.session_state.pop(f"itens_venda_{eid or 'novo'}", None)
+        st.session_state.pagina="vendas"; st.rerun()
+
     clientes = db.query("clientes", filters={"d_e_l_e_t":0})
     produtos  = db.query("produtos",  filters={"d_e_l_e_t":0})
+    prod_map  = {p["id"]: p for p in produtos}
     cli_opts  = {"— Balcão —": None} | {c["nome"]: c["id"] for c in clientes}
-    prod_opts = {f"[{p['codigo'] or '—'}] {p['nome']} — R$ {float(p['preco_venda'] or 0):,.2f} | Disp: {p['estoque_atual']-(p.get('estoque_reservado') or 0)} un": p for p in produtos}
-    # Controle de quantidade de itens via session_state
-    key_n = f"n_itens_{eid or 'novo'}"
-    if key_n not in st.session_state:
-        st.session_state[key_n] = max(1, len(db.query("venda_itens", filters={"id_venda":eid,"d_e_l_e_t":0})) if eid else 1)
+    prod_lista = list(prod_map.keys())
+    prod_nomes = {p["id"]: f"[{p['codigo'] or '—'}] {p['nome']} | Disp: {p['estoque_atual']-(p.get('estoque_reservado') or 0)} un" for p in produtos}
 
-    with st.form("fv"):
-        col1,col2,col3 = st.columns(3)
-        cli_sel = col1.selectbox("Cliente", list(cli_opts.keys()))
-        sts_ops = ["orcamento","confirmada","entregue","cancelada"]
-        sts_def = sts_ops.index(v["status"]) if v and v["status"] in sts_ops else 0
-        status  = col2.selectbox("Status", sts_ops, index=sts_def,
-                    format_func=lambda x:{"orcamento":"📝 Orçamento","confirmada":"✅ Confirmada","entregue":"📦 Entregue","cancelada":"❌ Cancelada"}[x])
-        formas  = ["","Dinheiro","PIX","Cartão Débito","Cartão Crédito","Boleto","Financiamento","Parcelado"]
-        f_def   = formas.index(v["forma_pagamento"]) if v and v["forma_pagamento"] in formas else 0
-        forma   = col3.selectbox("Pagamento", formas, index=f_def)
-        obs     = st.text_area("Observações", value=v["observacoes"] if v else "")
+    # Inicializar itens no session_state
+    key_itens = f"itens_venda_{eid or 'novo'}"
+    if key_itens not in st.session_state:
+        if eid:
+            its = db.query("venda_itens", filters={"id_venda":eid,"d_e_l_e_t":0})
+            st.session_state[key_itens] = [{"id_produto": it["id_produto"], "qtd": it["quantidade"], "preco": float(it["preco_unitario"] or 0)} for it in its] or [{"id_produto": prod_lista[0] if prod_lista else None, "qtd": 1, "preco": 0.0}]
+        else:
+            st.session_state[key_itens] = [{"id_produto": prod_lista[0] if prod_lista else None, "qtd": 1, "preco": float(produtos[0]["preco_venda"] or 0) if produtos else 0.0}]
 
-        st.markdown("**🛒 Produtos da Venda**")
-        n = st.session_state[key_n]
-        # Controle de linhas removidas
-        key_rem = f"rem_itens_{eid or 'novo'}"
-        if key_rem not in st.session_state:
-            st.session_state[key_rem] = []
-        itens_form = []
-        total = 0.0
-        linha = 0
-        for i in range(n):
-            if i in st.session_state[key_rem]:
-                continue
-            linha += 1
-            st.markdown(f"**Produto {linha}**")
-            ic1,ic2,ic3,ic4 = st.columns([3,1,1,0.5])
-            pk   = ic1.selectbox("Produto", list(prod_opts.keys()), key=f"p{i}")
-            pobj = prod_opts[pk]
-            qtd  = ic2.number_input("Quantidade", min_value=1, step=1, value=1, key=f"q{i}")
-            preco= ic3.number_input("Preço Unit. R$", min_value=0.0, step=0.01, value=float(pobj["preco_venda"] or 0), key=f"pr{i}")
-            sub  = qtd * preco
-            total += sub
-            st.caption(f"Subtotal: R$ {sub:,.2f}")
-            itens_form.append({"id_produto":pobj["id"],"qtd":qtd,"preco":preco,"sub":sub})
-            linhas_ativas = n - len(st.session_state[key_rem])
-            remover = ic4.form_submit_button("🗑️", key=f"rem{i}", help="Remover produto", disabled=(linhas_ativas <= 1))
-            if remover and linhas_ativas > 1:
-                st.session_state[key_rem].append(i)
-                st.rerun()
+    itens_ss = st.session_state[key_itens]
 
-        st.markdown(f"### 💰 Total: R$ {total:,.2f}")
-        ca, cb = st.columns(2)
-        add = ca.form_submit_button("➕ Adicionar Produto", use_container_width=True)
-        salvar = cb.form_submit_button("💾 Salvar Venda", type="primary", use_container_width=True)
-        if add:
-            st.session_state[key_n] += 1
+    # Cabeçalho
+    col1,col2,col3 = st.columns(3)
+    cli_keys = list(cli_opts.keys())
+    cli_def = 0
+    if v and v["id_cliente"]:
+        cli_nome = next((c["nome"] for c in clientes if c["id"]==v["id_cliente"]), None)
+        if cli_nome and cli_nome in cli_keys: cli_def = cli_keys.index(cli_nome)
+    cli_sel = col1.selectbox("Cliente", cli_keys, index=cli_def)
+    sts_ops = ["orcamento","confirmada","entregue","cancelada"]
+    sts_def = sts_ops.index(v["status"]) if v and v["status"] in sts_ops else 0
+    status  = col2.selectbox("Status", sts_ops, index=sts_def,
+                format_func=lambda x:{"orcamento":"📝 Orçamento","confirmada":"✅ Confirmada","entregue":"📦 Entregue","cancelada":"❌ Cancelada"}[x])
+    formas  = ["","Dinheiro","PIX","Cartão Débito","Cartão Crédito","Boleto","Financiamento","Parcelado"]
+    f_def   = formas.index(v["forma_pagamento"]) if v and v["forma_pagamento"] in formas else 0
+    forma   = col3.selectbox("Pagamento", formas, index=f_def)
+    obs     = st.text_area("Observações", value=v["observacoes"] if v else "")
+
+    st.markdown("---")
+    st.markdown("**🛒 Produtos da Venda**")
+
+    total = 0.0
+    for i, item in enumerate(itens_ss):
+        st.markdown(f"**Produto {i+1}**")
+        ic1,ic2,ic3,ic4 = st.columns([3,1,1,0.5])
+
+        # Produto selecionado
+        pid_atual = item["id_produto"]
+        prod_idx  = prod_lista.index(pid_atual) if pid_atual in prod_lista else 0
+        pid_sel   = ic1.selectbox("Produto", prod_lista, index=prod_idx,
+                        format_func=lambda x: prod_nomes.get(x,"?"), key=f"ps{i}")
+
+        # Atualizar preço automaticamente ao trocar produto
+        if pid_sel != pid_atual:
+            itens_ss[i]["id_produto"] = pid_sel
+            itens_ss[i]["preco"] = float(prod_map[pid_sel]["preco_venda"] or 0)
             st.rerun()
-        if salvar:
-            st.session_state.pop(key_rem, None)
-            uid = st.session_state.usuario["id"]
-            id_cliente = cli_opts[cli_sel]
-            if eid:
-                vant = v
-                db.update("vendas",dict(id_cliente=id_cliente,status=status,
-                          forma_pagamento=forma,observacoes=obs,total=total),{"id":eid})
-                if vant and vant["status"]=="confirmada":
-                    for it in db.query("venda_itens",{"id_venda":eid,"d_e_l_e_t":0}):
-                        p = next((x for x in produtos if x["id"]==it["id_produto"]),None)
-                        if p: db.update("produtos",{"estoque_atual":p["estoque_atual"]+it["quantidade"]},{"id":p["id"]})
-                db.update("venda_itens",{"d_e_l_e_t":1},{"id_venda":eid})
-                vid = eid
-            else:
-                hoje = datetime.date.today()
-                vends_hoje = db.query("vendas", filters={"d_e_l_e_t":0})
-                seq  = sum(1 for x in vends_hoje if (x["datestamp_insert"] or "")[:10] == str(hoje)) + 1
-                num  = f"V{hoje.strftime('%Y%m%d')}-{seq:04d}"
-                row  = db.insert("vendas", dict(numero_venda=num,id_cliente=id_cliente,
-                                 status=status,forma_pagamento=forma,observacoes=obs,
-                                 total=total,usuario_insert=uid,d_e_l_e_t=0))
-                vid  = row["id"]
-            for it in itens_form:
-                db.insert("venda_itens", dict(id_venda=vid,id_produto=it["id_produto"],
-                          quantidade=it["qtd"],preco_unitario=it["preco"],subtotal=it["sub"],d_e_l_e_t=0))
-            if status in ("confirmada", "entregue"):
-                for it in itens_form:
-                    p = next((x for x in produtos if x["id"]==it["id_produto"]),None)
-                    if p:
-                        db.update("produtos",{"estoque_atual":max(0,p["estoque_atual"]-it["qtd"])},{"id":p["id"]})
-                        db.insert("movimentos_estoque",dict(id_produto=it["id_produto"],tipo="saida",
-                                  quantidade=it["qtd"],motivo="Venda confirmada",
-                                  id_venda=vid,usuario_insert=uid))
-            st.success("Venda salva!")
-            st.session_state.pop("editar_venda_id",None)
-            st.session_state.pagina="vendas"; st.rerun()
+
+        qtd   = ic2.number_input("Qtd", min_value=1, step=1, value=item["qtd"], key=f"qs{i}")
+        preco = ic3.number_input("Preço R$", min_value=0.0, step=0.01, value=item["preco"], key=f"prs{i}")
+
+        # Atualizar qtd e preco no state
+        itens_ss[i]["qtd"]   = qtd
+        itens_ss[i]["preco"] = preco
+
+        sub = qtd * preco
+        total += sub
+        st.caption(f"Subtotal: R$ {sub:,.2f}")
+
+        if ic4.button("🗑️", key=f"rems{i}", disabled=(len(itens_ss)<=1), help="Remover"):
+            itens_ss.pop(i); st.rerun()
+
+    st.markdown(f"### 💰 Total: R$ {total:,.2f}")
+    st.markdown("---")
+    ca,cb = st.columns(2)
+    if ca.button("➕ Adicionar Produto", use_container_width=True):
+        p0 = prod_lista[0] if prod_lista else None
+        itens_ss.append({"id_produto": p0, "qtd": 1, "preco": float(prod_map[p0]["preco_venda"] or 0) if p0 else 0.0})
+        st.rerun()
+
+    if cb.button("💾 Salvar Venda", type="primary", use_container_width=True):
+        uid = st.session_state.usuario["id"]
+        id_cliente = cli_opts[cli_sel]
+        itens_form = [{"id_produto":it["id_produto"],"qtd":it["qtd"],"preco":it["preco"],"sub":it["qtd"]*it["preco"]} for it in itens_ss]
+        total_final = sum(x["sub"] for x in itens_form)
+
+        if eid:
+            db.update("vendas",dict(id_cliente=id_cliente,status=status,
+                      forma_pagamento=forma,observacoes=obs,total=total_final),{"id":eid})
+            db.update("venda_itens",{"d_e_l_e_t":1},{"id_venda":eid})
+            vid = eid
+        else:
+            hoje = datetime.date.today()
+            vends_hoje = db.query("vendas", filters={"d_e_l_e_t":0})
+            seq  = sum(1 for x in vends_hoje if (x["datestamp_insert"] or "")[:10] == str(hoje)) + 1
+            num  = f"V{hoje.strftime('%Y%m%d')}-{seq:04d}"
+            row  = db.insert("vendas", dict(numero_venda=num,id_cliente=id_cliente,
+                             status=status,forma_pagamento=forma,observacoes=obs,
+                             total=total_final,usuario_insert=uid,d_e_l_e_t=0))
+            vid  = row["id"]
+
+        for it in itens_form:
+            db.insert("venda_itens", dict(id_venda=vid,id_produto=it["id_produto"],
+                      quantidade=it["qtd"],preco_unitario=it["preco"],subtotal=it["sub"],d_e_l_e_t=0))
+
+        st.success("✅ Venda salva!")
+        st.session_state.pop(key_itens, None)
+        st.session_state.pop("editar_venda_id",None)
+        st.session_state.pagina="vendas"; st.rerun()
 
 # ════════════════════════════════════════════════════════════
 #  ROTEADOR
